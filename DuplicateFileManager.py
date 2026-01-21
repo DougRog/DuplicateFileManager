@@ -627,6 +627,59 @@ def delete_variants():
     else:
         return jsonify({'error': 'No files were deleted', 'errors': errors}), 500
 
+@app.route('/api/auto_resolve', methods=['POST'])
+def auto_resolve():
+    """Auto-resolve duplicates by keeping recommended file and deleting others"""
+    data = request.get_json()
+    group_name = data.get('group_name')
+    all_files = data.get('all_files', [])
+    keep_file = data.get('keep_file')
+
+    if not group_name or not all_files or not keep_file:
+        return jsonify({'error': 'Missing required parameters'}), 400
+
+    # Files to delete are all files except the one we want to keep
+    files_to_delete = [f for f in all_files if f != keep_file]
+
+    if not files_to_delete:
+        return jsonify({'error': 'No files to delete'}), 400
+
+    deleted_files = []
+    errors = []
+
+    for filepath in files_to_delete:
+        try:
+            file_path = Path(filepath)
+            if file_path.exists() and file_path.is_file():
+                # Security check - ensure file is within scan directory
+                if not str(file_path.resolve()).startswith(str(Path(SCAN_DIRECTORY).resolve())):
+                    errors.append(f'File outside scan directory: {filepath}')
+                    continue
+
+                file_path.unlink()
+
+                # Verify deletion
+                if not file_path.exists():
+                    deleted_files.append(filepath)
+                else:
+                    errors.append(f'File deletion failed: {filepath}')
+            else:
+                errors.append(f'File not found: {filepath}')
+        except Exception as e:
+            errors.append(f'Error deleting {filepath}: {str(e)}')
+
+    if deleted_files:
+        return jsonify({
+            'success': True,
+            'message': f'Auto-resolved: kept recommended file, deleted {len(deleted_files)} duplicate(s)',
+            'deleted_files': deleted_files,
+            'kept_file': keep_file,
+            'errors': errors,
+            'remove_from_ui': True
+        })
+    else:
+        return jsonify({'error': 'No files were deleted', 'errors': errors}), 500
+
 # HTML Template (embedded with modern, enhanced UI)
 template_html = '''
 <!DOCTYPE html>
@@ -1114,8 +1167,14 @@ template_html = '''
                                 <span class="group-info">({{ dup_data.files|length }} files)</span>
                             </div>
                             {% if dup_data.suggested_keep %}
-                            <div class="suggestion-badge">
-                                💡 Smart suggestion available
+                            <div style="display: flex; gap: 0.75rem; align-items: center;">
+                                <div class="suggestion-badge">
+                                    💡 Smart suggestion available
+                                </div>
+                                <button class="btn btn-success"
+                                        onclick="autoResolve('{{ group_name }}', {{ dup_data.files|map(attribute='path')|list|tojson|safe }}, '{{ dup_data.suggested_keep }}')">
+                                    ✓ Use Recommendation
+                                </button>
                             </div>
                             {% endif %}
                         </div>
@@ -1541,6 +1600,91 @@ template_html = '''
                 .catch(error => {
                     console.error('Delete variants error:', error);
                     showToast('Error deleting files', 'error');
+                });
+            }
+        }
+
+        function autoResolve(groupName, allFiles, keepFile) {
+            if (!allFiles || allFiles.length === 0) {
+                showToast('No files in group', 'error');
+                return;
+            }
+
+            if (!keepFile) {
+                showToast('No recommendation available', 'error');
+                return;
+            }
+
+            // Get list of files that will be deleted (all except the recommended one)
+            const filesToDelete = allFiles.filter(f => f !== keepFile);
+
+            if (filesToDelete.length === 0) {
+                showToast('No files to delete', 'error');
+                return;
+            }
+
+            const keepFileName = keepFile.split('/').pop();
+            const deleteFileNames = filesToDelete.map(p => p.split('/').pop()).join('\\n');
+
+            const confirmMessage = `Auto-resolve "${groupName}"?\\n\\n` +
+                                  `✓ KEEP: ${keepFileName}\\n\\n` +
+                                  `✗ DELETE (${filesToDelete.length} file${filesToDelete.length > 1 ? 's' : ''}):` +
+                                  `\\n${deleteFileNames}`;
+
+            if (confirm(confirmMessage)) {
+                fetch('/api/auto_resolve', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        group_name: groupName,
+                        all_files: allFiles,
+                        keep_file: keepFile
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showToast(`✓ ${data.message}`, 'success');
+
+                        if (data.remove_from_ui) {
+                            // Remove deleted files from the DOM
+                            data.deleted_files.forEach(filepath => {
+                                const fileItem = document.querySelector(`.file-item[data-filepath="${filepath}"]`);
+                                if (fileItem) {
+                                    fileItem.remove();
+                                }
+                            });
+
+                            // Find the group and remove it (only one file remains)
+                            const groupHeaders = document.querySelectorAll('.file-group-header');
+                            groupHeaders.forEach(header => {
+                                if (header.textContent.includes(groupName)) {
+                                    const fileGroup = header.closest('.file-group');
+                                    const remainingFiles = fileGroup.querySelectorAll('.file-item');
+
+                                    // After auto-resolve, only 1 file should remain, so remove the entire group
+                                    if (remainingFiles.length <= 1) {
+                                        fileGroup.remove();
+                                        updateEmptyStateMessages();
+                                    }
+                                }
+                            });
+
+                            updateStatsAfterDelete();
+                        }
+
+                        if (data.errors && data.errors.length > 0) {
+                            showToast(`Some errors occurred: ${data.errors.length} files had issues`, 'error');
+                        }
+                    } else {
+                        showToast(`Error: ${data.error}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Auto-resolve error:', error);
+                    showToast('Error auto-resolving duplicates', 'error');
                 });
             }
         }
