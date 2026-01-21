@@ -49,20 +49,33 @@ A modern, intelligent file duplicate detection and management system with automa
 ```bash
 # Directory to scan for duplicates
 SCAN_DIRECTORY=/mnt/mc_media/
-
-# Email server settings
-SMTP_SERVER=localhost
-SMTP_PORT=25
 ```
 
 ### Email Configuration
 
-The system sends notifications to `toc@lillybroadcasting.com` when new duplicates are found.
+The system sends notifications to `toc@lillybroadcasting.com` from `mib@lillyhubtv.com` using Office 365 SMTP.
 
-To customize the email recipient, edit the `EMAIL_RECIPIENT` variable in `DuplicateFileManager.py`:
+**Email Settings:**
+- **From**: mib@lillyhubtv.com
+- **To**: toc@lillybroadcasting.com
+- **SMTP Server**: smtp-legacy.office365.com
+- **Port**: 587 (TLS)
+- **Authentication**: Enabled with credentials
+
+The email credentials are configured in `DuplicateFileManager.py`:
 
 ```python
-EMAIL_RECIPIENT = 'your-email@domain.com'
+EMAIL_RECIPIENT = 'toc@lillybroadcasting.com'
+EMAIL_FROM = 'mib@lillyhubtv.com'
+EMAIL_PASSWORD = 'N0t1fy!@!'
+SMTP_SERVER = 'smtp-legacy.office365.com'
+SMTP_PORT = 587
+```
+
+**Note**: For security in production, consider using environment variables for sensitive credentials:
+
+```python
+EMAIL_PASSWORD = os.environ.get('EMAIL_PASSWORD', 'N0t1fy!@!')
 ```
 
 ### Scan Interval

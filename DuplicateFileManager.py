@@ -28,9 +28,10 @@ SCAN_DIRECTORY = os.environ.get('SCAN_DIRECTORY', '/mnt/mc_media/')
 SCAN_INTERVAL = 900  # 15 minutes in seconds
 CHUNK_SIZE = 50  # Process files in chunks for better responsiveness
 EMAIL_RECIPIENT = 'toc@lillybroadcasting.com'
-EMAIL_FROM = 'duplicates@system.local'
-SMTP_SERVER = os.environ.get('SMTP_SERVER', 'localhost')
-SMTP_PORT = int(os.environ.get('SMTP_PORT', '25'))
+EMAIL_FROM = 'mib@lillyhubtv.com'
+EMAIL_PASSWORD = 'N0t1fy!@!'
+SMTP_SERVER = 'smtp-legacy.office365.com'
+SMTP_PORT = 587
 
 # File to track seen duplicates
 SEEN_DUPLICATES_FILE = 'seen_duplicates.json'
@@ -100,8 +101,10 @@ def send_email_notification(new_duplicates):
 
         msg.attach(MIMEText(body, 'plain'))
 
-        # Send email
+        # Send email with TLS authentication
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()  # Enable TLS encryption
+            server.login(EMAIL_FROM, EMAIL_PASSWORD)
             server.send_message(msg)
 
         print(f"Email notification sent for {len(new_duplicates)} new duplicate groups")
